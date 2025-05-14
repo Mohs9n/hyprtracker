@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-func RunAnalysis(logFilePath string, keywordsStr string) {
+func RunAnalysis(logFilePath string, keywordsStr string, minDuration time.Duration) {
 	var relatedKeywords []string
 	if keywordsStr != "" {
 		rawKeywords := strings.Split(keywordsStr, ",")
@@ -27,6 +27,9 @@ func RunAnalysis(logFilePath string, keywordsStr string) {
 	log.Printf("Processing activity log: %s", logFilePath)
 	if len(relatedKeywords) > 0 {
 		log.Printf("Filtering for related activities with keywords: [%s]", strings.Join(relatedKeywords, ", "))
+	}
+	if minDuration > 0 {
+		log.Printf("Filtering out activities shorter than %s", FormatDuration(minDuration))
 	}
 
 	file, err := os.Open(logFilePath)
@@ -56,15 +59,15 @@ func RunAnalysis(logFilePath string, keywordsStr string) {
 		fmt.Printf("Total Duration: %s\n", FormatDuration(totalKeywordMatchDuration))
 
 		fmt.Printf("\n--- Time Spent Per Application (Filtered by Keywords: [%s]) ---\n", strings.Join(relatedKeywords, ", "))
-		PrintSortedSummary(appDurations)
+		PrintSortedSummary(appDurations, minDuration)
 		fmt.Printf("\n--- Time Spent Per Window (Filtered by Keywords: [%s]) ---\n", strings.Join(relatedKeywords, ", "))
-		PrintSortedSummary(windowDurations)
+		PrintSortedSummary(windowDurations, minDuration)
 	} else {
 		fmt.Println("\n--- Time Spent Per Application ---")
-		PrintSortedSummary(appDurations)
+		PrintSortedSummary(appDurations, minDuration)
 
 		fmt.Println("\n--- Time Spent Per Window (App - Title) ---")
-		PrintSortedSummary(windowDurations)
+		PrintSortedSummary(windowDurations, minDuration)
 	}
 }
 
@@ -143,7 +146,7 @@ func CalculateDurations(entries []LogEntry, relatedKeywords []string) (
 	return appDurations, windowDurations, totalKeywordMatchDuration
 }
 
-func PrintSortedSummary(durations map[string]time.Duration) {
+func PrintSortedSummary(durations map[string]time.Duration, minDuration time.Duration) {
 	if len(durations) == 0 {
 		fmt.Println("No duration data to display for this filter.")
 		return
@@ -151,7 +154,14 @@ func PrintSortedSummary(durations map[string]time.Duration) {
 
 	summaryList := make([]TimeSummary, 0, len(durations))
 	for name, duration := range durations {
-		summaryList = append(summaryList, TimeSummary{Name: name, Duration: duration})
+		if duration >= minDuration {
+			summaryList = append(summaryList, TimeSummary{Name: name, Duration: duration})
+		}
+	}
+
+	if len(summaryList) == 0 {
+		fmt.Printf("No activities lasted longer than %s.\n", FormatDuration(minDuration))
+		return
 	}
 
 	sort.Slice(summaryList, func(i, j int) bool {
