@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-func RunAnalysis(logFilePath string, keywordsStr string, minDuration time.Duration) {
+func RunAnalysis(logFilePath string, keywordsStr string, minDuration time.Duration, appOnly bool) {
 	var relatedKeywords []string
 	if keywordsStr != "" {
 		rawKeywords := strings.Split(keywordsStr, ",")
@@ -24,7 +24,7 @@ func RunAnalysis(logFilePath string, keywordsStr string, minDuration time.Durati
 		}
 	}
 
-	log.Printf("Processing activity log: %s", logFilePath)
+	// log.Printf("Processing activity log: %s", logFilePath)
 	if len(relatedKeywords) > 0 {
 		log.Printf("Filtering for related activities with keywords: [%s]", strings.Join(relatedKeywords, ", "))
 	}
@@ -60,14 +60,19 @@ func RunAnalysis(logFilePath string, keywordsStr string, minDuration time.Durati
 
 		fmt.Printf("\n--- Time Spent Per Application (Filtered by Keywords: [%s]) ---\n", strings.Join(relatedKeywords, ", "))
 		PrintSortedSummary(appDurations, minDuration)
-		fmt.Printf("\n--- Time Spent Per Window (Filtered by Keywords: [%s]) ---\n", strings.Join(relatedKeywords, ", "))
-		PrintSortedSummary(windowDurations, minDuration)
+		
+		if !appOnly {
+			fmt.Printf("\n--- Time Spent Per Window (Filtered by Keywords: [%s]) ---\n", strings.Join(relatedKeywords, ", "))
+			PrintSortedSummary(windowDurations, minDuration)
+		}
 	} else {
 		fmt.Println("\n--- Time Spent Per Application ---")
 		PrintSortedSummary(appDurations, minDuration)
 
-		fmt.Println("\n--- Time Spent Per Window (App - Title) ---")
-		PrintSortedSummary(windowDurations, minDuration)
+		if !appOnly {
+			fmt.Println("\n--- Time Spent Per Window (App - Title) ---")
+			PrintSortedSummary(windowDurations, minDuration)
+		}
 	}
 }
 
