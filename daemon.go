@@ -2,16 +2,25 @@ package main
 
 import (
 	"context"
-	"github.com/thiagokokada/hyprland-go/event"
 	"log"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
+
+	"github.com/thiagokokada/hyprland-go/event"
 )
 
-func RunDaemon(logFilePath string) {
-	log.Printf("Starting Hyprland activity logger with terminal debouncing. Log file: %s", logFilePath)
+func RunDaemonWithConfig(logFilePath string, config LoggerConfig) {
+	log.Printf("Starting Hyprland activity logger with configuration:")
+	log.Printf("- Terminal Debounce Time: %s", FormatDuration(config.TerminalDebounceTime))
+	log.Printf("- General Debounce Time: %s", FormatDuration(config.GeneralDebounceTime))
+	if config.UseExternalIdleManager {
+		log.Printf("- Using external idle manager: Yes (listening on %s)", IdleSocketPath)
+	} else {
+		log.Printf("- Using external idle manager: No (using internal idle detection)")
+	}
+	log.Printf("- Log file: %s", logFilePath)
 
 	logEntryChan := make(chan LogEntry, 100)
 	var wg sync.WaitGroup
@@ -29,6 +38,15 @@ func RunDaemon(logFilePath string) {
 	wg.Add(1)
 	go RunLogger(ctx, logEntryChan, logFilePath, &wg)
 
+	// Start idle socket listener if using external idle manager
+	if config.UseExternalIdleManager {
+		if err := StartIdleSocketListener(ctx, &wg, logEntryChan); err != nil {
+			log.Printf("Warning: Failed to start idle socket listener: %v", err)
+			log.Println("Falling back to internal idle detection")
+			config.UseExternalIdleManager = false
+		}
+	}
+
 	client := event.MustClient()
 	defer func() {
 		log.Println("Closing Hyprland event client...")
@@ -37,9 +55,8 @@ func RunDaemon(logFilePath string) {
 		}
 	}()
 
-	handler := &DebouncedActivityLogger{
-		logChan: logEntryChan,
-	}
+	handler := NewDebouncedActivityLogger(logEntryChan, config)
+
 
 	log.Printf("Subscribing to event: %s", event.EventActiveWindow)
 	err := client.Subscribe(ctx, handler, event.EventActiveWindow)

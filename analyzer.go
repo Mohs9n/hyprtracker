@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/thiagokokada/hyprland-go/event"
 )
 
 func RunAnalysis(logFilePath string, keywordsStr string, minDuration time.Duration, appOnly bool) {
@@ -94,9 +96,8 @@ func ParseLogEntries(reader io.Reader) ([]LogEntry, error) {
 			continue
 		}
 
-		if entry.EventType == "activewindow" {
-			entries = append(entries, entry)
-		}
+		// Include all event types: activewindow, idle_start, idle_end
+		entries = append(entries, entry)
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -114,37 +115,90 @@ func CalculateDurations(entries []LogEntry, relatedKeywords []string) (
 	appDurations = make(map[string]time.Duration)
 	windowDurations = make(map[string]time.Duration)
 
+	inIdlePeriod := false
+	
 	for i := 0; i < len(entries)-1; i++ {
 		current := entries[i]
 		next := entries[i+1]
 
+		// Skip if timestamps are out of order
 		if !next.Timestamp.After(current.Timestamp) {
 			log.Printf("Warning: Found out-of-order or duplicate timestamp at entry %d and %d. Skipping duration calculation for this interval.", i, i+1)
 			continue
 		}
-
-		duration := next.Timestamp.Sub(current.Timestamp)
-		isMatch := false
-		if len(relatedKeywords) > 0 {
-			searchText := strings.ToLower(current.EventData.Name + " " + current.EventData.Title)
-			for _, keyword := range relatedKeywords {
-				if strings.Contains(searchText, keyword) {
-					isMatch = true
-					break
+		
+		// Handle idle events
+		if current.EventType == "idle_start" {
+			inIdlePeriod = true
+			continue
+		}
+		
+		if current.EventType == "idle_end" {
+			inIdlePeriod = false
+			continue
+		}
+		
+		// Skip if we're in an idle period
+		if inIdlePeriod {
+			continue
+		}
+		
+		// Skip if the next entry is an idle_start (we'll handle this duration separately)
+		if next.EventType == "idle_start" {
+			duration := next.Timestamp.Sub(current.Timestamp)
+			
+			isMatch := false
+			if len(relatedKeywords) > 0 {
+				searchText := strings.ToLower(current.EventData.Name + " " + current.EventData.Title)
+				for _, keyword := range relatedKeywords {
+					if strings.Contains(searchText, keyword) {
+						isMatch = true
+						break
+					}
 				}
 			}
+
+			shouldProcessForSummaries := (len(relatedKeywords) == 0) || isMatch
+
+			if shouldProcessForSummaries {
+				appDurations[current.EventData.Name] += duration
+				windowKey := fmt.Sprintf("%s - %s", current.EventData.Name, current.EventData.Title)
+				windowDurations[windowKey] += duration
+			}
+
+			if len(relatedKeywords) > 0 && isMatch {
+				totalKeywordMatchDuration += duration
+			}
+			
+			continue
 		}
+		
+		// Regular window change
+		if current.EventType == string(event.EventActiveWindow) && next.EventType == string(event.EventActiveWindow) {
+			duration := next.Timestamp.Sub(current.Timestamp)
+			
+			isMatch := false
+			if len(relatedKeywords) > 0 {
+				searchText := strings.ToLower(current.EventData.Name + " " + current.EventData.Title)
+				for _, keyword := range relatedKeywords {
+					if strings.Contains(searchText, keyword) {
+						isMatch = true
+						break
+					}
+				}
+			}
 
-		shouldProcessForSummaries := (len(relatedKeywords) == 0) || isMatch
+			shouldProcessForSummaries := (len(relatedKeywords) == 0) || isMatch
 
-		if shouldProcessForSummaries {
-			appDurations[current.EventData.Name] += duration
-			windowKey := fmt.Sprintf("%s - %s", current.EventData.Name, current.EventData.Title)
-			windowDurations[windowKey] += duration
-		}
+			if shouldProcessForSummaries {
+				appDurations[current.EventData.Name] += duration
+				windowKey := fmt.Sprintf("%s - %s", current.EventData.Name, current.EventData.Title)
+				windowDurations[windowKey] += duration
+			}
 
-		if len(relatedKeywords) > 0 && isMatch {
-			totalKeywordMatchDuration += duration
+			if len(relatedKeywords) > 0 && isMatch {
+				totalKeywordMatchDuration += duration
+			}
 		}
 	}
 
