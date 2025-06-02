@@ -1,12 +1,8 @@
 package main
 
 import (
-	"bufio"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -14,7 +10,7 @@ import (
 	"github.com/thiagokokada/hyprland-go/event"
 )
 
-func RunAnalysis(logFilePath string, keywordsStr string, minDuration time.Duration, appOnly bool) {
+func RunAnalysis(dbPath string, keywordsStr string, minDuration time.Duration, appOnly bool, timeRange string) {
 	var relatedKeywords []string
 	if keywordsStr != "" {
 		rawKeywords := strings.Split(keywordsStr, ",")
@@ -26,35 +22,99 @@ func RunAnalysis(logFilePath string, keywordsStr string, minDuration time.Durati
 		}
 	}
 
-	// log.Printf("Processing activity log: %s", logFilePath)
 	if len(relatedKeywords) > 0 {
 		log.Printf("Filtering for related activities with keywords: [%s]", strings.Join(relatedKeywords, ", "))
 	}
 	if minDuration > 0 {
 		log.Printf("Filtering out activities shorter than %s", FormatDuration(minDuration))
 	}
-
-	file, err := os.Open(logFilePath)
+	
+	log.Printf("Using database at %s", dbPath)
+	db, err := OpenDatabase(dbPath)
 	if err != nil {
-		log.Fatalf("Error opening log file '%s': %v", logFilePath, err)
+		log.Fatalf("Error opening database: %v", err)
 	}
-	defer file.Close()
-
-	entries, err := ParseLogEntries(file)
-	if err != nil {
-		log.Fatalf("Error parsing log entries: %v", err)
+	defer db.Close()
+	
+	// Calculate the time range based on the user's selection
+	endTime := time.Now()
+	var startTime time.Time
+	
+	switch timeRange {
+	case "day":
+		startTime = endTime.AddDate(0, 0, -1)
+		fmt.Println("Analyzing data from the last 24 hours")
+	case "week":
+		startTime = endTime.AddDate(0, 0, -7)
+		fmt.Println("Analyzing data from the last 7 days")
+	case "month":
+		startTime = endTime.AddDate(0, -1, 0)
+		fmt.Println("Analyzing data from the last 30 days")
+	case "year":
+		startTime = endTime.AddDate(-1, 0, 0)
+		fmt.Println("Analyzing data from the last year")
+	case "all":
+		startTime = time.Time{}
+		fmt.Println("Analyzing all available data")
+	default:
+		startTime = endTime.AddDate(0, -1, 0) // Default to one month
+		fmt.Println("Analyzing data from the last 30 days")
 	}
+	
+	generateSummaryReport(db, startTime, endTime, relatedKeywords, minDuration, appOnly)
+}
 
-	if len(entries) < 2 {
-		log.Println("Not enough entries to calculate durations. Need at least 2.")
-		return
+func generateSummaryReport(db *Database, startTime, endTime time.Time, relatedKeywords []string, minDuration time.Duration, appOnly bool) {
+	var appDurations map[string]time.Duration
+	var windowDurations map[string]time.Duration
+	var totalKeywordMatchDuration time.Duration
+	
+	if len(relatedKeywords) > 0 {
+		// Use the new database query for keyword filtering
+		summaries, err := db.GetKeywordFilteredSummary(startTime, endTime, relatedKeywords)
+		if err != nil {
+			log.Fatalf("Error retrieving keyword-filtered summary: %v", err)
+		}
+		
+		// Convert to map for compatibility with existing code
+		appDurations = make(map[string]time.Duration)
+		for _, summary := range summaries {
+			appDurations[summary.Name] = summary.Duration
+			totalKeywordMatchDuration += summary.Duration
+		}
+		
+		// Get window-level details if needed
+		if !appOnly {
+			entries, err := db.GetEvents(startTime, endTime)
+			if err != nil {
+				log.Fatalf("Error retrieving events from database: %v", err)
+			}
+			
+			_, windowDurations, _ = CalculateDurations(entries, relatedKeywords)
+		}
+	} else {
+		// Use the optimized database query for application summary
+		summaries, err := db.GetApplicationSummary(startTime, endTime)
+		if err != nil {
+			log.Fatalf("Error retrieving application summary: %v", err)
+		}
+		
+		// Convert to map for compatibility with existing code
+		appDurations = make(map[string]time.Duration)
+		for _, summary := range summaries {
+			appDurations[summary.Name] = summary.Duration
+		}
+		
+		// Get window-level details if needed
+		if !appOnly {
+			entries, err := db.GetEvents(startTime, endTime)
+			if err != nil {
+				log.Fatalf("Error retrieving events from database: %v", err)
+			}
+			
+			_, windowDurations, _ = CalculateDurations(entries, relatedKeywords)
+		}
 	}
-
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Timestamp.Before(entries[j].Timestamp)
-	})
-
-	appDurations, windowDurations, totalKeywordMatchDuration := CalculateDurations(entries, relatedKeywords)
 
 	if len(relatedKeywords) > 0 {
 		fmt.Printf("\n--- Total Time For Activities Matching Keywords: [%s] ---\n", strings.Join(relatedKeywords, ", "))
@@ -76,35 +136,6 @@ func RunAnalysis(logFilePath string, keywordsStr string, minDuration time.Durati
 			PrintSortedSummary(windowDurations, minDuration)
 		}
 	}
-}
-
-func ParseLogEntries(reader io.Reader) ([]LogEntry, error) {
-	var entries []LogEntry
-	scanner := bufio.NewScanner(reader)
-	lineNumber := 0
-
-	for scanner.Scan() {
-		lineNumber++
-		line := scanner.Text()
-		if line == "" {
-			continue
-		}
-
-		var entry LogEntry
-		if err := json.Unmarshal([]byte(line), &entry); err != nil {
-			log.Printf("Warning: Skipping line %d due to unmarshal error: %v (Line: %s)", lineNumber, err, line)
-			continue
-		}
-
-		// Include all event types: activewindow, idle_start, idle_end
-		entries = append(entries, entry)
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error reading log file: %w", err)
-	}
-
-	return entries, nil
 }
 
 func CalculateDurations(entries []LogEntry, relatedKeywords []string) (

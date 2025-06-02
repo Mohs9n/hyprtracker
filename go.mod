@@ -9,5 +9,6 @@ require (
 
 require (
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
+	github.com/mattn/go-sqlite3 v1.14.28 // indirect
 	golang.org/x/sys v0.15.0 // indirect
 )

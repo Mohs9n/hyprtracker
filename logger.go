@@ -1,10 +1,6 @@
 package main
 
 import (
-	"context"
-	"encoding/json"
-	"log"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -114,64 +110,4 @@ func (al *DebouncedActivityLogger) getLastLogTimeForKey(windowKey string) (time.
 	return time.Time{}, false
 }
 
-func RunLogger(ctx context.Context, logChan <-chan LogEntry, logFilePath string, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	file, err := os.OpenFile(logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		log.Fatalf("Failed to open log file %s: %v", logFilePath, err)
-		return
-	}
-	defer func() {
-		log.Println("Closing log file...")
-		if err := file.Close(); err != nil {
-			log.Printf("Error closing log file: %v", err)
-		}
-	}()
-
-	log.Println("Logger goroutine started.")
-
-	for {
-		select {
-		case entry, ok := <-logChan:
-			if !ok {
-				log.Println("Log channel closed, logger goroutine exiting.")
-				return
-			}
-			writeEntryToFile(file, entry)
-
-		case <-ctx.Done():
-			log.Println("Context cancelled, logger goroutine flushing remaining entries...")
-			flushRemainingEntries(logChan, file)
-			return
-		}
-	}
-}
-
-func writeEntryToFile(file *os.File, entry LogEntry) {
-	if entry.Timestamp.IsZero() {
-		entry.Timestamp = time.Now()
-	}
-	jsonData, err := json.Marshal(entry)
-	if err != nil {
-		log.Printf("Error marshalling log entry to JSON: %v (Entry: %+v)", err, entry)
-		return
-	}
-	if _, err := file.WriteString(string(jsonData) + "\n"); err != nil {
-		log.Printf("Error writing to log file: %v", err)
-	}
-}
-
-func flushRemainingEntries(logChan <-chan LogEntry, file *os.File) {
-	for {
-		select {
-		case entry, ok := <-logChan:
-			if !ok {
-				return
-			}
-			writeEntryToFile(file, entry)
-		default:
-			return
-		}
-	}
-}
+// This function has been removed in favor of the SQLite database implementation in database.go

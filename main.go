@@ -13,27 +13,30 @@ import (
 )
 
 func main() {
+	// Common flags
+	dbPathFlag := flag.String("db-path", DefaultDBPath, "Path to the SQLite database file")
+
+	// Daemon mode flags
 	daemonFlag := flag.Bool("daemon", false, "Run as a daemon to collect window activity")
-	logFileFlag := flag.String("logfile", DefaultLogFilePath, "Path to the log file")
-	keywordsFlag := flag.String("keywords", "", "Comma-separated list of keywords to filter related activities (e.g., \"firefox,projectX,mydoc\")")
-	minDurationFlag := flag.Int("min-duration", 0, "Minimum duration in seconds to include in the output (e.g., 1 will filter out activities less than 1 second)")
-	appOnlyFlag := flag.Bool("app-only", true, "Only display per-application report, skip window details (default true)")
-	
-	// New configuration options
-	terminalDebounceFlag := flag.Int("terminal-debounce", int(DebounceTime.Seconds()), "Terminal debounce time in seconds (default: 3)")
+	terminalDebounceFlag := flag.Int("terminal-debounce", int(DebounceTime.Seconds()), "Terminal debounce time in seconds")
 	generalDebounceFlag := flag.Int("general-debounce", int(DefaultGeneralDebounceTime.Seconds()), "General debounce time in seconds (default: 0.5)")
+	systrayFlag := flag.Bool("systray", true, "Enable system tray icon for controlling the daemon")
+	
+	// Analysis mode flags
+	keywordsFlag := flag.String("keywords", "", "Comma-separated list of keywords to filter related activities (e.g., \"firefox,projectX,mydoc\")")
+	minDurationFlag := flag.Int("min-duration", 60, "Minimum duration in seconds to include in the output (e.g., 1 will filter out activities less than 1 second)")
+	appOnlyFlag := flag.Bool("app-only", false, "Only display per-application report, skip window details")
+	timeRangeFlag := flag.String("time-range", "month", "Time range for analysis: 'day', 'week', 'month', 'year', or 'all'")
 	
 	// External idle manager integration
 	idleSignalFlag := flag.String("idle-signal", "", "Send idle signal to running daemon: 'start' to mark idle start, 'end' to mark idle end")
 	
-	// Systray flag to make systray optional
-	systrayFlag := flag.Bool("systray", false, "Enable system tray icon for controlling the daemon")
-	
-	// Flag to toggle pause via command line
+	// Toggle pause via command line
 	togglePauseFlag := flag.Bool("toggle-pause", false, "Toggle pause/resume on a running daemon")
 
 	flag.Parse()
 
+	// Handle special command flags
 	if *idleSignalFlag != "" {
 		if err := SendIdleSignal(*idleSignalFlag); err != nil {
 			log.Fatalf("Error sending idle signal: %v", err)
@@ -48,29 +51,24 @@ func main() {
 		return
 	}
 
-	nonFlagArgs := flag.Args()
-	logFilePath := *logFileFlag
-	if len(nonFlagArgs) > 0 {
-		logFilePath = nonFlagArgs[0]
-	}
-
-	logDir := filepath.Dir(logFilePath)
-	if logDir != "." && logDir != "" {
-		if err := os.MkdirAll(logDir, 0755); err != nil {
-			log.Fatalf("Failed to create log directory: %v", err)
-		}
-	}
-
 	if *daemonFlag {
+		dbDir := filepath.Dir(*dbPathFlag)
+		if dbDir != "." && dbDir != "" {
+			if err := os.MkdirAll(dbDir, 0755); err != nil {
+				log.Fatalf("Failed to create database directory: %v", err)
+			}
+		}
+
 		config := LoggerConfig{
 			TerminalDebounceTime:   time.Duration(*terminalDebounceFlag) * time.Second,
 			GeneralDebounceTime:    time.Duration(*generalDebounceFlag) * time.Second,
 			EnableSystray:          *systrayFlag,
+			DBPath:                 *dbPathFlag,
 		}
-		RunDaemonWithConfig(logFilePath, config)
+		RunDaemonWithConfig(config)
 	} else {
 		minDuration := time.Duration(*minDurationFlag) * time.Second
-		RunAnalysis(logFilePath, *keywordsFlag, minDuration, *appOnlyFlag)
+		RunAnalysis(*dbPathFlag, *keywordsFlag, minDuration, *appOnlyFlag, *timeRangeFlag)
 	}
 }
 

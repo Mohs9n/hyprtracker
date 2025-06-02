@@ -12,18 +12,16 @@ import (
 	"github.com/thiagokokada/hyprland-go/event"
 )
 
-func RunDaemonWithConfig(logFilePath string, config LoggerConfig) {
+func RunDaemonWithConfig(config LoggerConfig) {
 	log.Printf("Starting Hyprland activity logger with configuration:")
 	log.Printf("- Terminal Debounce Time: %s", FormatDuration(config.TerminalDebounceTime))
 	log.Printf("- General Debounce Time: %s", FormatDuration(config.GeneralDebounceTime))
 
 	// Optional systray
-	var trayEnd func()
 	if config.EnableSystray {
 		log.Printf("- System Tray: Enabled")
 		systrayEnabled = true
-		var trayStart func()
-		trayStart, trayEnd = systray.RunWithExternalLoop(systrayOnReady, systrayOnExit)
+		trayStart, trayEnd := systray.RunWithExternalLoop(systrayOnReady, systrayOnExit)
 		trayStart()
 		defer func() {
 			if trayEnd != nil {
@@ -35,8 +33,6 @@ func RunDaemonWithConfig(logFilePath string, config LoggerConfig) {
 		systrayEnabled = false
 	}
 
-	log.Printf("- Log file: %s", logFilePath)
-
 	logEntryChan := make(chan LogEntry, 100)
 	var wg sync.WaitGroup
 
@@ -44,7 +40,6 @@ func RunDaemonWithConfig(logFilePath string, config LoggerConfig) {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Handle both system signals and tray quit button if systray is enabled
 	go func() {
 		if config.EnableSystray {
 			select {
@@ -56,15 +51,16 @@ func RunDaemonWithConfig(logFilePath string, config LoggerConfig) {
 				cancel()
 			}
 		} else {
-			// If systray is disabled, only listen for system signals
 			<-sigChan
 			log.Println("Shutdown signal received, cleaning up...")
 			cancel()
 		}
 	}()
 
+	log.Printf("- Database: %s", config.DBPath)
 	wg.Add(1)
-	go RunLogger(ctx, logEntryChan, logFilePath, &wg)
+	go RunDBLogger(ctx, logEntryChan, config.DBPath, &wg)
+	
 	// Start socket listener for external commands (idle signals, pause toggle)
 	if err := StartSocketListener(ctx, &wg, logEntryChan); err != nil {
 		log.Printf("Warning: Failed to start socket listener: %v", err)

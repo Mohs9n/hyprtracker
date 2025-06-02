@@ -1,7 +1,6 @@
 # fyne.io/systray v1.11.0
 ## explicit; go 1.19
 fyne.io/systray
-fyne.io/systray/example/icon
 fyne.io/systray/internal/generated/menu
 fyne.io/systray/internal/generated/notifier
 # github.com/godbus/dbus/v5 v5.1.0
@@ -9,6 +8,9 @@ fyne.io/systray/internal/generated/notifier
 github.com/godbus/dbus/v5
 github.com/godbus/dbus/v5/introspect
 github.com/godbus/dbus/v5/prop
+# github.com/mattn/go-sqlite3 v1.14.28
+## explicit; go 1.19
+github.com/mattn/go-sqlite3
 # github.com/thiagokokada/hyprland-go v0.4.1
 ## explicit; go 1.21
 github.com/thiagokokada/hyprland-go/event

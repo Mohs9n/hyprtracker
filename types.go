@@ -2,8 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
 	"slices"
@@ -18,15 +16,6 @@ const (
 	SocketPath              = "/tmp/hyprtracker.sock"
 )
 
-func GetDefaultLogFilePath() string {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "./hyprland_activity.log"
-	}
-	return filepath.Join(homeDir, ".local", "share", "hyprtracker", "hyprland_activity.log")
-}
-
-var DefaultLogFilePath = GetDefaultLogFilePath()
 
 var TerminalEmulators = []string{
 	"kitty",
@@ -59,6 +48,7 @@ type LoggerConfig struct {
 	TerminalDebounceTime   time.Duration
 	GeneralDebounceTime    time.Duration
 	EnableSystray          bool
+	DBPath                 string
 }
 
 func IsTerminalEmulator(windowName string) bool {
@@ -81,3 +71,5 @@ func FormatDuration(d time.Duration) string {
 	}
 	return fmt.Sprintf("%ds", s)
 }
+
+var DefaultDBPath = GetDefaultDBPath()
