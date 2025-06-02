@@ -6,14 +6,16 @@ import (
 	"path/filepath"
 	"time"
 
+	"slices"
+
 	"github.com/thiagokokada/hyprland-go/event"
 )
 
 const (
-	DebounceTime = 3 * time.Second
+	DebounceTime            = 3 * time.Second
 	DefaultGeneralDebounceTime = 500 * time.Millisecond
-	DefaultIdleThreshold = 15 * time.Minute
-	IdleSocketPath = "/tmp/hyprtracker-idle.sock"
+	DefaultIdleThreshold     = 15 * time.Minute
+	SocketPath              = "/tmp/hyprtracker.sock"
 )
 
 func GetDefaultLogFilePath() string {
@@ -56,16 +58,11 @@ type TimeSummary struct {
 type LoggerConfig struct {
 	TerminalDebounceTime   time.Duration
 	GeneralDebounceTime    time.Duration
-	UseExternalIdleManager bool
+	EnableSystray          bool
 }
 
 func IsTerminalEmulator(windowName string) bool {
-	for _, terminal := range TerminalEmulators {
-		if windowName == terminal {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(TerminalEmulators, windowName)
 }
 
 func FormatDuration(d time.Duration) string {

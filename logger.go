@@ -42,6 +42,11 @@ func (al *DebouncedActivityLogger) ActiveWindow(w event.ActiveWindow) {
 		return
 	}
 
+	// Skip event processing if tracking is paused
+	if trackingPaused {
+		return
+	}
+
 	al.mu.Lock()
 	defer al.mu.Unlock()
 

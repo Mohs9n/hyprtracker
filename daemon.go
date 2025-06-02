@@ -8,6 +8,7 @@ import (
 	"sync"
 	"syscall"
 
+	"fyne.io/systray"
 	"github.com/thiagokokada/hyprland-go/event"
 )
 
@@ -15,11 +16,25 @@ func RunDaemonWithConfig(logFilePath string, config LoggerConfig) {
 	log.Printf("Starting Hyprland activity logger with configuration:")
 	log.Printf("- Terminal Debounce Time: %s", FormatDuration(config.TerminalDebounceTime))
 	log.Printf("- General Debounce Time: %s", FormatDuration(config.GeneralDebounceTime))
-	if config.UseExternalIdleManager {
-		log.Printf("- Using external idle manager: Yes (listening on %s)", IdleSocketPath)
+
+	// Optional systray
+	var trayEnd func()
+	if config.EnableSystray {
+		log.Printf("- System Tray: Enabled")
+		systrayEnabled = true
+		var trayStart func()
+		trayStart, trayEnd = systray.RunWithExternalLoop(systrayOnReady, systrayOnExit)
+		trayStart()
+		defer func() {
+			if trayEnd != nil {
+				trayEnd()
+			}
+		}()
 	} else {
-		log.Printf("- Using external idle manager: No (using internal idle detection)")
+		log.Printf("- System Tray: Disabled")
+		systrayEnabled = false
 	}
+
 	log.Printf("- Log file: %s", logFilePath)
 
 	logEntryChan := make(chan LogEntry, 100)
@@ -29,22 +44,31 @@ func RunDaemonWithConfig(logFilePath string, config LoggerConfig) {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
+	// Handle both system signals and tray quit button if systray is enabled
 	go func() {
-		<-sigChan
-		log.Println("Shutdown signal received, cleaning up...")
-		cancel()
+		if config.EnableSystray {
+			select {
+			case <-sigChan:
+				log.Println("Shutdown signal received, cleaning up...")
+				cancel()
+			case <-quitAppChan:
+				log.Println("Quit requested from tray menu, cleaning up...")
+				cancel()
+			}
+		} else {
+			// If systray is disabled, only listen for system signals
+			<-sigChan
+			log.Println("Shutdown signal received, cleaning up...")
+			cancel()
+		}
 	}()
 
 	wg.Add(1)
 	go RunLogger(ctx, logEntryChan, logFilePath, &wg)
-
-	// Start idle socket listener if using external idle manager
-	if config.UseExternalIdleManager {
-		if err := StartIdleSocketListener(ctx, &wg, logEntryChan); err != nil {
-			log.Printf("Warning: Failed to start idle socket listener: %v", err)
-			log.Println("Falling back to internal idle detection")
-			config.UseExternalIdleManager = false
-		}
+	// Start socket listener for external commands (idle signals, pause toggle)
+	if err := StartSocketListener(ctx, &wg, logEntryChan); err != nil {
+		log.Printf("Warning: Failed to start socket listener: %v", err)
+		log.Println("External control via command line will be unavailable")
 	}
 
 	client := event.MustClient()
@@ -56,7 +80,6 @@ func RunDaemonWithConfig(logFilePath string, config LoggerConfig) {
 	}()
 
 	handler := NewDebouncedActivityLogger(logEntryChan, config)
-
 
 	log.Printf("Subscribing to event: %s", event.EventActiveWindow)
 	err := client.Subscribe(ctx, handler, event.EventActiveWindow)
